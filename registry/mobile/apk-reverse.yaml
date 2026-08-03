@@ -1,0 +1,26 @@
+skill_id: "apk_reverse_001"
+name: "Android APK Reverse Engineering"
+description: "Безопасный статический анализ Android APK в изолированной среде"
+category: "mobile"
+
+triggers:
+  - "apk"
+  - "android"
+  - "декомпиляция"
+  - "reverse engineering"
+
+sandbox:
+  provider: "docker"
+  image: "cyber-skill/apk-tools:latest"
+
+workflow:
+  - step: 1
+    action: "echo '🔍 Шаг 1: Базовая информация о файле' && file <target>"
+  - step: 2
+    action: "echo ' Шаг 2: Извлечение AndroidManifest.xml' && apktool d -f -o /tmp/apk_extracted <target> && cat /tmp/apk_extracted/AndroidManifest.xml"
+  - step: 3
+    action: "echo '🔓 Шаг 3: Декомпиляция Java/Kotlin кода' && jadx -d /tmp/jadx_output <target> && find /tmp/jadx_output -name '*.java' | head -20"
+  - step: 4
+    action: "echo ' Шаг 4: Поиск потенциально чувствительных строк' && strings <target> | grep -iE '(api_key|password|secret|token|http|https)' | head -30"
+  - step: 5
+    action: "echo '✅ Анализ завершен'"
