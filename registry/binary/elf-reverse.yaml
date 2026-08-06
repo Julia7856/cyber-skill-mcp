@@ -1,0 +1,28 @@
+skill_id: "elf_reverse_001"
+name: "Linux ELF Binary Analysis"
+description: "Статический анализ Linux исполняемых файлов в изолированной среде"
+category: "binary"
+
+triggers:
+  - "elf"
+  - "linux"
+  - "бинарник"
+  - "executable"
+
+sandbox:
+  provider: "docker"
+  image: "cyber-skill/elf-tools:latest"
+
+workflow:
+  - step: 1
+    action: "echo '🔍 Шаг 1: Базовая информация о файле' && file <target>"
+  - step: 2
+    action: "echo '🔧 Шаг 2: Структура ELF' && readelf -h <target> && readelf -l <target>"
+  - step: 3
+    action: "echo '🔗 Шаг 3: Динамические библиотеки' && readelf -d <target> && ldd <target> 2>/dev/null || echo 'Статически слинкован'"
+  - step: 4
+    action: "echo '🔎 Шаг 4: Строки и потенциальные угрозы' && strings <target> | grep -iE '(http|https|socket|connect|exec|system|password|key)' | head -30"
+  - step: 5
+    action: "echo '🔬 Шаг 5: Дизассембление основных функций' && objdump -d <target> | head -100"
+  - step: 6
+    action: "echo '✅ Анализ завершен'"
