@@ -6,7 +6,7 @@ Sandbox Manager - Безопасное выполнение в Docker-конте
 import docker
 import os
 from pathlib import Path
-from .audit import AuditLogger
+from audit import AuditLogger
 
 class SandboxManager:
     def __init__(self, skill_config: dict):
