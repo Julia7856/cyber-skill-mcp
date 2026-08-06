@@ -7,6 +7,10 @@ import argparse
 import sys
 import os
 from pathlib import Path
+
+# Добавляем корень проекта в путь для корректного импорта
+sys.path.insert(0, str(Path(__file__).parent))
+
 from server.main import SKILLS
 from sandbox.manager import SandboxManager
 
@@ -26,12 +30,12 @@ def analyze_file(target_file: str, skill_id: str):
     skill = SKILLS[skill_id]
     print(f" Запуск анализа: {skill['name']}")
     print(f"📁 Файл: {target_file}")
-    print(f" Режим: Изолированная песочница")
+    print(f"🔒 Режим: Изолированная песочница")
     print("-" * 50)
     
     # Запускаем песочницу
-    manager = SandboxManager(skill)
     try:
+        manager = SandboxManager(skill)
         result = manager.execute_in_sandbox(target_file)
         print("\n" + "=" * 50)
         print("✅ РЕЗУЛЬТАТ АНАЛИЗА:")
