@@ -1,0 +1,29 @@
+skill_id: "pe_analysis_001"
+name: "Windows PE File Analysis"
+description: "Статический анализ Windows исполняемых файлов (PE) в изолированной среде"
+category: "binary"
+
+triggers:
+  - "pe"
+  - "windows"
+  - "exe"
+  - "dll"
+  - "executable"
+
+sandbox:
+  provider: "docker"
+  image: "cyber-skill/pe-tools:latest"
+
+workflow:
+  - step: 1
+    action: "echo '🔍 Шаг 1: Базовая информация о файле' && file <target>"
+  - step: 2
+    action: "echo '🔧 Шаг 2: PE заголовок' && python3 -c \"import pefile; pe=pefile.PE('<target>'); print(pe.dump_info())\" 2>/dev/null || echo 'pefile не установлен'"
+  - step: 3
+    action: "echo '📚 Шаг 3: Импортируемые библиотеки' && python3 -c \"import pefile; pe=pefile.PE('<target>'); [print(imp.dll.decode() if isinstance(imp.dll, bytes) else imp.dll) for imp in pe.DIRECTORY_ENTRY_IMPORT]\" 2>/dev/null || echo 'Пропуск'"
+  - step: 4
+    action: "echo '🔎 Шаг 4: Подозрительные импорты' && python3 -c \"import pefile; pe=pefile.PE('<target>'); suspicious=['VirtualAlloc','CreateRemoteThread','WriteProcessMemory','LoadLibrary','GetProcAddress']; [print(imp.name.decode() if isinstance(imp.name, bytes) else imp.name) for entry in pe.DIRECTORY_ENTRY_IMPORT for imp in entry.imports if (imp.name.decode() if isinstance(imp.name, bytes) else imp.name) in suspicious]\" 2>/dev/null || echo 'Пропуск'"
+  - step: 5
+    action: "echo '🔑 Шаг 5: Строки и потенциальные угрозы' && strings <target> | grep -iE '(http|https|password|key|secret|admin|cmd|powershell)' | head -30"
+  - step: 6
+    action: "echo '✅ Анализ завершен'"
