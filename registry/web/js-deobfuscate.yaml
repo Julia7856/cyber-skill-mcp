@@ -1,0 +1,28 @@
+skill_id: "js_deobfuscate_001"
+name: "JavaScript Deobfuscation"
+description: "Анализ и деобфускация JavaScript кода в изолированной среде"
+category: "web"
+
+triggers:
+  - "javascript"
+  - "js"
+  - "обфускация"
+  - "deobfuscation"
+
+sandbox:
+  provider: "docker"
+  image: "cyber-skill/js-tools:latest"
+
+workflow:
+  - step: 1
+    action: "echo '🔍 Шаг 1: Базовая информация о файле' && file <target> && wc -l <target>"
+  - step: 2
+    action: "echo ' Шаг 2: Статистика кода' && echo 'Строк:' && wc -l <target> && echo 'Символов:' && wc -c <target>"
+  - step: 3
+    action: "echo '🔎 Шаг 3: Поиск подозрительных паттернов' && grep -iE '(eval|Function|unescape|document\\.write|window\\.location|XMLHttpRequest|fetch)' <target> | head -20"
+  - step: 4
+    action: "echo ' Шаг 4: Извлечение URL' && grep -oE 'https?://[^ \"'\\'']+' <target> | sort -u"
+  - step: 5
+    action: "echo '🔑 Шаг 5: Поиск строк и ключей' && strings <target> | grep -iE '(password|key|secret|token|api)' | head -20"
+  - step: 6
+    action: "echo '✅ Анализ завершен'"
