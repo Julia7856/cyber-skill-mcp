@@ -79,7 +79,32 @@ python cli.py analyze app.apk --skill apk_reverse_001
 
 Это обеспечивает полную прозрачность действий при сохранении конфиденциальности данных.
 
-## 📂 Структура проекта## 🛠️ Добавление нового навыка
+## 📂 Структура проекта
+## 📦 Доступные навыки
+
+### 📱 Мобильные приложения
+* **`apk_reverse_001`** — Android APK Reverse Engineering
+  * Извлечение `AndroidManifest.xml`
+  * Декомпиляция Java/Kotlin кода
+  * Поиск чувствительных строк, API-ключей и URL
+
+### 💻 Бинарные файлы (Reverse Engineering)
+* **`elf_reverse_001`** — Linux ELF Binary Analysis
+  * Анализ структуры ELF-заголовков
+  * Проверка динамических библиотек (ldd)
+  * Дизассемблирование и поиск строк
+* **`pe_analysis_001`** — Windows PE File Analysis
+  * Парсинг PE-заголовков
+  * Поиск подозрительных импортов (VirtualAlloc, CreateRemoteThread)
+  * Извлечение строк и скрытых URL
+
+### 🌐 Веб-безопасность
+* **`js_deobfuscate_001`** — JavaScript Deobfuscation
+  * Анализ обфусцированного JS-кода
+  * Поиск подозрительных паттернов (`eval`, `Function`, `unescape`)
+  * Извлечение скрытых ссылок и токенов
+
+## ️ Добавление нового навыка
 
 1. Создайте YAML-файл в `registry/`:
 
@@ -94,7 +119,7 @@ sandbox:
 
 workflow:
   - step: 1
-    action: "echo 'Шаг 1' && my-command <target>"
+    action: "echo 'War 1' && my-command <target>"
 ```
 
 2. Создайте Dockerfile в `docker/my-tools/`
