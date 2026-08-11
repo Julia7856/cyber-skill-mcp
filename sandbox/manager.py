@@ -1,12 +1,31 @@
 """
-Sandbox Manager - Безопасное выполнение в Docker-контейнерах
-Принцип Zero-Trust: изоляция, read-only, без сети
+Sandbox Manager - Безопасное выполнение в Docker-контейнерах.
+Zero-Trust: изоляция, read-only, без сети, монтаж одного файла.
+
+Sandbox Manager - Safe execution in Docker containers.
+Zero-Trust: isolation, read-only, no network, single-file mount.
 """
 
 import docker
 import os
-from pathlib import Path
+import shutil
+import tempfile
 from audit import AuditLogger
+
+# Разрешённые директории (env CSR_ALLOWED_ROOTS, разделитель ":", дефолт ~/analysis)
+# Allowed directories for analysis (env CSR_ALLOWED_ROOTS, ":" separated)
+ALLOWED_ROOTS = [
+    os.path.realpath(os.path.expanduser(p))
+    for p in os.environ.get("CSR_ALLOWED_ROOTS", "~/analysis").split(":")
+    if p.strip()
+]
+
+DEFAULT_TIMEOUT = 60  # секунд / seconds
+
+
+class SandboxError(Exception):
+    """Ошибка песочницы / Sandbox error"""
+
 
 class SandboxManager:
     def __init__(self, skill_config: dict):
@@ -14,80 +33,104 @@ class SandboxManager:
         self.workflow = skill_config.get("workflow", [])
         self.skill_name = skill_config.get("name", "unknown")
         self.skill_id = skill_config.get("skill_id", "unknown")
-        
-        # Инициализация Docker клиента
+        self.timeout = int(self.config.get("timeout", DEFAULT_TIMEOUT))
+
         try:
             self.client = docker.from_env()
             self.client.ping()
         except docker.errors.DockerException as e:
-            raise Exception(f" Docker не доступен: {e}")
+            raise SandboxError(f"Docker не доступен / Docker not available: {e}")
 
-        # Инициализация логгера аудита
         self.audit = AuditLogger()
 
-    def _build_commands(self, target_file: str, extra_args: str = "") -> str:
-        """Собирает команды из workflow, подставляя путь к файлу"""
-        target_name = os.path.basename(target_file)
+    def _resolve_target(self, target_file: str) -> str:
+        """Разрешает путь (realpath против symlink) и проверяет белый список.
+        Resolves path (realpath vs symlinks) and checks the allowlist."""
+        real = os.path.realpath(os.path.expanduser(target_file))
+        for root in ALLOWED_ROOTS:
+            if real == root or real.startswith(root + os.sep):
+                return real
+        raise SandboxError(
+            f"Путь вне разрешённых директорий / Path outside allowed roots: {real}. "
+            f"Разрешено / Allowed: {', '.join(ALLOWED_ROOTS)}"
+        )
+
+    def _build_commands(self, target_name: str) -> str:
+        """Только декларативный workflow. Никаких внешних аргументов.
+        Declarative workflow only. No external arguments."""
         commands = []
-        
         for step in self.workflow:
             cmd = step.get("action", "")
             cmd = cmd.replace("<target>", f"/workspace/{target_name}")
             cmd = cmd.replace("<file>", f"/workspace/{target_name}")
             if cmd:
                 commands.append(cmd)
-        
-        if extra_args:
-            commands.append(extra_args)
-        
         return " && ".join(commands)
 
-    def execute_in_sandbox(self, target_file: str, extra_args: str = "") -> str:
-        """Запускает команды в изолированном Docker-контейнере"""
-        abs_target = os.path.abspath(target_file)
-        target_name = os.path.basename(abs_target)
-        workspace = os.path.dirname(abs_target)
-        
+    def execute_in_sandbox(self, target_file: str) -> str:
+        """Запускает workflow в изолированном контейнере с одним файлом.
+        Runs the workflow in an isolated container with a single file."""
+        real_target = self._resolve_target(target_file)
+        target_name = os.path.basename(real_target)
+
         image_name = self.config.get("image", "alpine:latest")
         try:
             self.client.images.get(image_name)
         except docker.errors.ImageNotFound:
             self.audit.log_analysis(self.skill_id, self.skill_name, target_file, "error_image_missing")
-            raise Exception(f" Docker образ '{image_name}' не найден.")
-        
-        full_script = self._build_commands(target_file, extra_args)
-        
+            raise SandboxError(f"Docker образ не найден / Image not found: '{image_name}'")
+
+        full_script = self._build_commands(target_name)
         if not full_script:
-            raise Exception("️ Нет команд для выполнения в workflow")
-        
-        print(f"🔒 Запуск в изолированной среде: {image_name}")
-        
+            raise SandboxError("Нет команд в workflow / No commands in workflow")
+
+        # Только один файл во временной папке / Single file in a temp dir
+        tmp_dir = tempfile.mkdtemp(prefix="csr_")
         try:
-            container = self.client.containers.run(
+            dst = os.path.join(tmp_dir, target_name)
+            shutil.copy2(real_target, dst)
+            os.chmod(tmp_dir, 0o755)  # доступно для nobody в контейнере / readable by nobody
+            os.chmod(dst, 0o644)
+
+            print(f"🔒 Запуск в изолированной среде / Isolated run: {image_name}")
+            container = self.client.containers.create(
                 image_name,
-                command=["bash", "-c", full_script],
-                volumes={workspace: {"bind": "/workspace", "mode": "ro"}},
-                tmpfs={"/tmp": ""},
-                remove=True,
-                capture_output=True,
+                command=["sh", "-c", full_script],
+                volumes={tmp_dir: {"bind": "/workspace", "mode": "ro"}},
+                tmpfs={"/tmp": "size=64m"},
                 mem_limit="1g",
+                pids_limit=64,
+                cpu_period=100000,
+                cpu_quota=50000,
                 network_mode="none",
                 security_opt=["no-new-privileges:true"],
-                read_only=True
+                cap_drop=["ALL"],
+                user="65534:65534",
+                read_only=True,
             )
-            
-            # ✅ Логируем успешный анализ
+            try:
+                container.start()
+                container.wait(timeout=self.timeout)
+                output = container.logs(stdout=True, stderr=True).decode("utf-8", errors="replace")
+            except Exception:
+                self.audit.log_analysis(self.skill_id, self.skill_name, target_file, "error_timeout")
+                raise SandboxError(f"Таймаут / Timeout: {self.timeout}s")
+            finally:
+                try:
+                    container.remove(force=True)
+                except Exception:
+                    pass
+
             self.audit.log_analysis(self.skill_id, self.skill_name, target_file, "success")
-            
-            output = container.decode("utf-8")
-            return output if output.strip() else "✅ Анализ завершен успешно"
-            
-        except docker.errors.ContainerError as e:
-            # ✅ Логируем ошибку контейнера
+            return output if output.strip() else "✅ Анализ завершен / Analysis completed"
+
+        except SandboxError:
+            raise
+        except docker.errors.APIError as e:
             self.audit.log_analysis(self.skill_id, self.skill_name, target_file, "error")
-            error_msg = e.stderr.decode("utf-8") if e.stderr else str(e)
-            return f"⚠️ Ошибка выполнения в контейнере:\n{error_msg}"
-        except Exception as e:
-            # ✅ Логируем любую другую ошибку
+            return f"⚠️ Ошибка Docker / Docker error: {type(e).__name__}"
+        except Exception:
             self.audit.log_analysis(self.skill_id, self.skill_name, target_file, "error")
-            return f"⚠️ Непредвиденная ошибка: {str(e)}"
+            return "⚠️ Непредвиденная ошибка / Unexpected error"
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
